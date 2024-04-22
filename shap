@@ -1,0 +1,105 @@
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+import joblib
+import shap
+import pickle
+from sklearn.metrics import roc_curve, auc
+import matplotlib.pyplot as plt
+import xgboost as xgb
+
+
+import matplotlib
+matplotlib.rcParams['font.family'] = 'Times New Roman'
+matplotlib.rcParams['savefig.dpi'] = 300
+
+train_excel_file = r"C:\Users\xxx\Desktop\train.xlsx"
+train_df = pd.read_excel(train_excel_file)
+
+
+X_train = train_df.iloc[:, :6]
+y_train = train_df.iloc[:, 6]
+
+
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+
+
+xgb_model = xgb.XGBClassifier(n_estimators=100, max_depth=3, learning_rate=0.1, random_state=42)
+xgb_model.fit(X_train_scaled, y_train)
+
+
+model_save_filename = r'D:\jqxx\xgb_model.pkl'
+joblib.dump(xgb_model, model_save_filename)
+print("XGBoost")
+
+
+def plot_roc_curve(y_test, y_score, model_name, save_path):
+    fpr, tpr, _ = roc_curve(y_test, y_score[:, 1])
+    roc_auc = auc(fpr, tpr)
+    plt.figure()
+    plt.plot(fpr, tpr, color='darkorange', lw=2, label='ROC curve (area = %0.2f)' % roc_auc)
+    plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+    plt.xlim([0.0, 1.0])
+    plt.ylim([0.0, 1.05])
+    plt.xlabel('False Positive Rate')
+    plt.ylabel('True Positive Rate')
+    plt.title(f'ROC Curve for {model_name}')
+    plt.legend(loc="lower right")
+    plt.savefig(save_path)
+    plt.show()
+
+
+
+test_df = pd.read_excel(r"C:\Users\xxx\Desktop\test.xlsx")
+X_test = test_df.iloc[:, :6]
+y_test = test_df.iloc[:, 6]
+X_test_scaled = scaler.transform(X_test)
+
+
+y_score = xgb_model.predict_proba(X_test_scaled)
+
+
+y_prob = y_score[:, 1]
+
+
+test_df['Predicted_Probability'] = y_prob
+
+
+prediction_save_path = r"C:\Users\xxx\Desktop\xgbprediction.xlsx"
+test_df.to_excel(prediction_save_path, index=False)
+print("done", prediction_save_path)
+
+
+plot_roc_curve(y_test, y_score, 'XGBoost Model', "D:\\jqxx\\roc.png")
+
+
+explainer = shap.TreeExplainer(xgb_model)
+shap_values = explainer.shap_values(X_train_scaled)
+print("SHAP values calculated:", shap_values)
+
+
+with open('lgb_shap_values.pkl', 'rb') as file:
+    shap_values = pickle.load(file)
+
+
+explainer = shap.TreeExplainer(xgb_model, X_train_scaled)
+
+# force_plot
+sample_data = X_train_scaled[1].reshape(1, -1) 
+shap.force_plot(explainer.expected_value, shap_values[0][0], sample_data, feature_names=train_df.columns[:6], matplotlib=True)
+
+
+expected_value = explainer.expected_value
+features = X_train_scaled[:500]
+features_display = list(train_df.columns[:6])
+shap_values_subset = shap_values[0][:500]
+shap.decision_plot(expected_value, shap_values_subset, features, feature_names=features_display)
+
+# summary
+shap.summary_plot(shap_values[1], X_train_scaled, feature_names=train_df.columns[:6])
+
+
+shap_interaction_values = explainer.shap_interaction_values(X_train_scaled)
+shap.summary_plot(shap_interaction_values, X_train_scaled, feature_names=train_df.columns[:6])
+shap_interaction_values = explainer.shap_interaction_values(X_train_scaled)
+shap.summary_plot(shap_interaction_values, X_train_scaled, feature_names=train_df.columns[:6])
